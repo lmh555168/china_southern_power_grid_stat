@@ -77,7 +77,7 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Create the options flow."""
-        return CSGOptionsFlowHandler(config_entry)
+        return CSGOptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -375,11 +375,6 @@ class CSGConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class CSGOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for China Southern Power Grid Statistics."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-        self.all_electricity_accounts: list[CSGElectricityAccount] = []
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
@@ -415,7 +410,7 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
             all_account_numbers.extend(config_entry.data[CONF_ELE_ACCOUNTS].keys())
         if user_input:
             account_num_to_add = user_input[CONF_ACCOUNT_NUMBER]
-            for account in self.all_electricity_accounts:
+            for account in getattr(self, "_all_electricity_accounts", []):
                 if account.account_number == account_num_to_add:
                     # store the account config in main entry instead of creating new entries
                     new_data = self.config_entry.data.copy()
@@ -456,7 +451,7 @@ class CSGOptionsFlowHandler(config_entries.OptionsFlow):
         accounts = await self.hass.async_add_executor_job(
             client.get_all_electricity_accounts
         )
-        self.all_electricity_accounts = accounts
+        self._all_electricity_accounts = accounts
         if not accounts:
             _LOGGER.warning(
                 "No linked ele accounts found in csg account %s",
