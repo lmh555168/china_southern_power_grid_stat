@@ -693,68 +693,36 @@ class CSGClient:
     def get_month_daily_cost_detail(
         self, account: CSGElectricityAccount, year_month: tuple[int, int]
     ) -> tuple[float | None, float | None, dict, list[dict[str, str | float]]]:
-        """Get daily cost of current month"""
+        """Get the month's total cost from annual fee-analyze (getAnalyzeFeeDetails).
 
+        The previous per-day endpoint (query_day_electric_charge_by_m_point)
+        stopped returning usable data (missing the required crypto param), so
+        fall back to the yearly fee-analyze endpoint and pick the target month.
+        """
         year, month = year_month
+        target = f"{year}-{month:02d}"
 
-        resp_data = self.api_query_day_electric_charge_by_m_point(
-            year,
-            month,
-            account.area_code,
-            account.ele_customer_id,
-            account.metering_point_id,
+        resp_data = self.api_get_fee_analyze_details(
+            year, account.area_code, account.ele_customer_id
         )
 
+        month_total_cost = None
+        month_total_kwh = None
         by_day = []
-        for d_data in resp_data["result"]:
-            by_day.append(
-                {
-                    WF_ATTR_DATE: d_data["date"],
-                    WF_ATTR_CHARGE: float(d_data["charge"]),
-                    WF_ATTR_KWH: float(d_data["power"]),
-                }
-            )
+        for m_data in resp_data.get("electricAndChargeList", []):
+            if str(m_data.get("yearMonth", "")) == target:
+                if m_data.get("actualTotalAmount") is not None:
+                    month_total_cost = float(m_data["actualTotalAmount"])
+                if m_data.get("billingElectricity") is not None:
+                    month_total_kwh = float(m_data["billingElectricity"])
+                break
 
-        # sometimes the data by day is present, but the total amount and ladder are not
-
-        if resp_data["totalElectricity"] is not None:
-            month_total_cost = float(resp_data["totalElectricity"])
-        else:
-            month_total_cost = None
-
-        if resp_data["totalPower"] is not None:
-            month_total_kwh = float(resp_data["totalPower"])
-        else:
-            month_total_kwh = None
-
-        # sometimes the ladder info is null, handle that
-        if resp_data["ladderEle"] is not None:
-            current_ladder = int(resp_data["ladderEle"])
-        else:
-            current_ladder = None
-        # "2023-05-01 00:00:00.0"
-        if resp_data["ladderEleStartDate"] is not None:
-            current_ladder_start_date = datetime.datetime.strptime(
-                resp_data["ladderEleStartDate"], "%Y-%m-%d %H:%M:%S.%f"
-            )
-        else:
-            current_ladder_start_date = None
-        if resp_data["ladderEleSurplus"] is not None:
-            current_ladder_remaining_kwh = float(resp_data["ladderEleSurplus"])
-        else:
-            current_ladder_remaining_kwh = None
-        if resp_data["ladderEleTariff"] is not None:
-            current_tariff = float(resp_data["ladderEleTariff"])
-        else:
-            current_tariff = None
-        # TODO what will happen to `current_ladder_remaining_kwh` when it's the last ladder?
         ladder = {
-            WF_ATTR_LADDER: current_ladder,
-            WF_ATTR_LADDER_START_DATE: current_ladder_start_date,
-            WF_ATTR_LADDER_REMAINING_KWH: current_ladder_remaining_kwh,
-            WF_ATTR_LADDER_TARIFF: current_tariff,
+            WF_ATTR_LADDER: None,
+            WF_ATTR_LADDER_START_DATE: None,
+            WF_ATTR_LADDER_REMAINING_KWH: None,
+            WF_ATTR_LADDER_TARIFF: None,
         }
-
         return month_total_cost, month_total_kwh, ladder, by_day
 
     def get_balance_and_arrears(
